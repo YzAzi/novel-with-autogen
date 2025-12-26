@@ -4,8 +4,9 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 SQLAlchemy==2.0.36
 
-# Optional: AutoGen (only used when MOCK_LLM=0 and package installed)
-autogen==0.2.38
+# Optional: AutoGen 0.4+ (used when MOCK_LLM=0 and configured)
+autogen-agentchat>=0.4.0
+autogen-ext>=0.4.0
 
 # RAG (Chroma + optional local models)
 chromadb==0.5.23

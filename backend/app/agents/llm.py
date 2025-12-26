@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, List, Optional
+import asyncio
+from typing import Any, Dict
 
 from app.core.config import settings
 
@@ -24,41 +24,68 @@ class MockLLMClient(LLMClient):
 
 class AutoGenLLMClient(LLMClient):
     def __init__(self) -> None:
-        try:
-            import autogen  # type: ignore
-        except Exception as e:  # pragma: no cover
-            raise RuntimeError("autogen is not installed") from e
-
-        self._autogen = autogen
-
         if not settings.llm_api_key:
             raise RuntimeError("LLM_API_KEY is missing")
 
-        config: Dict[str, Any] = {
-            "model": settings.llm_model,
-            "api_key": settings.llm_api_key,
-        }
-        if settings.llm_base_url:
-            config["base_url"] = settings.llm_base_url
+        self._mode: str | None = None
 
-        self._llm_config = {
-            "temperature": settings.llm_temperature,
-            "config_list": [config],
-        }
+        # AutoGen 0.4+ (agentchat + ext model clients)
+        try:
+            from autogen_agentchat.agents import AssistantAgent  # type: ignore
+            from autogen_ext.models.openai import OpenAIChatCompletionClient  # type: ignore
+
+            self._AssistantAgent = AssistantAgent
+            self._ModelClient = OpenAIChatCompletionClient
+            self._mode = "v0_4"
+        except Exception:
+            self._mode = None
+
+        # Legacy AutoGen 0.2.x fallback (kept for compatibility if installed)
+        if self._mode is None:
+            try:
+                import autogen  # type: ignore
+            except Exception as e:  # pragma: no cover
+                raise RuntimeError("AutoGen is not installed (need autogen-agentchat/autogen-ext >=0.4)") from e
+
+            self._autogen = autogen
+            config: Dict[str, Any] = {"model": settings.llm_model, "api_key": settings.llm_api_key}
+            if settings.llm_base_url:
+                config["base_url"] = settings.llm_base_url
+            self._llm_config = {"temperature": settings.llm_temperature, "config_list": [config]}
+            self._mode = "legacy"
 
     def complete(self, *, system: str, prompt: str) -> str:
-        # Minimal "single shot" usage: create a temporary assistant agent and ask it.
-        agent = self._autogen.AssistantAgent(
-            name="AutogenAssistant",
-            system_message=system,
-            llm_config=self._llm_config,
-        )
-        user = self._autogen.UserProxyAgent(
-            name="User",
-            human_input_mode="NEVER",
-            code_execution_config=False,
-        )
-        # autogen stores last message in chat history; we return assistant's last content.
+        if self._mode == "v0_4":
+            model_kwargs: Dict[str, Any] = {
+                "model": settings.llm_model,
+                "api_key": settings.llm_api_key,
+            }
+            if settings.llm_base_url:
+                model_kwargs["base_url"] = settings.llm_base_url
+
+            model_client = self._ModelClient(**model_kwargs)
+            agent = self._AssistantAgent(
+                name="AutogenAssistant",
+                system_message=system,
+                model_client=model_client,
+            )
+
+            async def _run() -> str:
+                result = await agent.run(task=prompt)
+                messages = getattr(result, "messages", None)
+                if messages:
+                    last = messages[-1]
+                    content = getattr(last, "content", None)
+                    if content is not None:
+                        return str(content)
+                    return str(last)
+                return str(result)
+
+            return asyncio.run(_run())
+
+        # legacy 0.2.x path
+        agent = self._autogen.AssistantAgent(name="AutogenAssistant", system_message=system, llm_config=self._llm_config)
+        user = self._autogen.UserProxyAgent(name="User", human_input_mode="NEVER", code_execution_config=False)
         user.initiate_chat(agent, message=prompt)
         history = user.chat_messages.get(agent, [])
         for msg in reversed(history):
@@ -71,4 +98,3 @@ def get_llm_client() -> LLMClient:
     if settings.mock_llm or not settings.llm_api_key:
         return MockLLMClient()
     return AutoGenLLMClient()
-
