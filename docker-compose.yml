@@ -1,0 +1,43 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./.env
+    environment:
+      - DB_PATH=/data/app.db
+      - BACKEND_CORS_ORIGINS=http://localhost:3000
+      - CHROMA_PERSIST_DIR=data/chroma
+      # Offline local models mounted at /models (see volumes below)
+      - EMBEDDINGS_PROVIDER=local_bge_m3
+      - BGE_M3_MODEL_NAME=/models/bge-m3
+      - RERANK_PROVIDER=local_bge
+      - BGE_RERANK_MODEL_NAME=/models/bge-reranker-v2-m3
+      - HF_HUB_OFFLINE=1
+      - TRANSFORMERS_OFFLINE=1
+    volumes:
+      - ./data:/data
+      - ./backend/data:/app/data
+      - ./model:/models:ro
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - NEXT_PUBLIC_API_BASE=http://localhost:8000
+    env_file:
+      - ./.env
+    environment:
+      - NEXT_PUBLIC_API_BASE=http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy

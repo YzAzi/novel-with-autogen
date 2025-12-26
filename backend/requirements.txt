@@ -1,0 +1,12 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.4
+pydantic-settings==2.7.0
+SQLAlchemy==2.0.36
+
+# Optional: AutoGen (only used when MOCK_LLM=0 and package installed)
+autogen==0.2.38
+
+# RAG (Chroma + optional local models)
+chromadb==0.5.23
+sentence-transformers==3.3.1
