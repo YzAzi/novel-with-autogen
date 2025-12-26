@@ -32,10 +32,8 @@ class AutoGenLLMClient(LLMClient):
         # AutoGen 0.4+ (agentchat + ext model clients)
         try:
             from autogen_agentchat.agents import AssistantAgent  # type: ignore
-            from autogen_ext.models.openai import OpenAIChatCompletionClient  # type: ignore
 
             self._AssistantAgent = AssistantAgent
-            self._ModelClient = OpenAIChatCompletionClient
             self._mode = "v0_4"
         except Exception:
             self._mode = None
@@ -45,7 +43,7 @@ class AutoGenLLMClient(LLMClient):
             try:
                 import autogen  # type: ignore
             except Exception as e:  # pragma: no cover
-                raise RuntimeError("AutoGen is not installed (need autogen-agentchat/autogen-ext >=0.4)") from e
+                raise RuntimeError("AutoGen is not installed (need autogen-agentchat/autogen-ext[openai] 0.7.5)") from e
 
             self._autogen = autogen
             config: Dict[str, Any] = {"model": settings.llm_model, "api_key": settings.llm_api_key}
@@ -56,6 +54,12 @@ class AutoGenLLMClient(LLMClient):
 
     def complete(self, *, system: str, prompt: str) -> str:
         if self._mode == "v0_4":
+            try:
+                from autogen_ext.models.openai import OpenAIChatCompletionClient  # type: ignore
+                from autogen_ext.models.openai._model_info import ModelInfo  # type: ignore
+            except Exception as e:  # pragma: no cover
+                raise RuntimeError("AutoGen ext OpenAI client not available; install autogen-ext[openai]==0.7.5") from e
+
             model_kwargs: Dict[str, Any] = {
                 "model": settings.llm_model,
                 "api_key": settings.llm_api_key,
@@ -63,7 +67,18 @@ class AutoGenLLMClient(LLMClient):
             if settings.llm_base_url:
                 model_kwargs["base_url"] = settings.llm_base_url
 
-            model_client = self._ModelClient(**model_kwargs)
+            # Many OpenAI-compatible gateways / non-OpenAI model IDs work better with explicit ModelInfo.
+            model_kwargs["model_info"] = ModelInfo(
+                model=settings.llm_model,
+                family="openai-compatible",
+                is_chat_model=True,
+                vision=False,
+                function_calling=False,
+                json_output=False,
+                structured_output=False,
+            )
+
+            model_client = OpenAIChatCompletionClient(**model_kwargs)
             agent = self._AssistantAgent(
                 name="AutogenAssistant",
                 system_message=system,

@@ -83,6 +83,13 @@ docker compose up --build
 - 前端：http://localhost:3000
 - 后端：http://localhost:8000/healthz
 
+如果你把 `MOCK_LLM=0` 打开了但后端报 “AutoGen is not installed / ext OpenAI client not available”，请重新构建镜像以安装新依赖：
+
+```bash
+docker compose build --no-cache backend
+docker compose up
+```
+
 SQLite 数据会落在 `./data/app.db`（通过 volume 挂载）。
 
 ## 4) 本地启动（不使用 Docker）
